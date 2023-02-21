@@ -20,16 +20,6 @@ nltk.download("punkt", quiet=True)
 
 # Metric
 metric = evaluate.load("rouge")
-# evaluation generation args
-gen_kwargs = {
-    "early_stopping": True,
-    "length_penalty": 2.0,
-    "max_new_tokens": 50,
-    "min_length": 30,
-    "no_repeat_ngram_size": 3,
-    "num_beams": 4,
-}
-
 
 def postprocess_text(preds, labels):
     preds = [pred.strip() for pred in preds]
@@ -47,7 +37,8 @@ def parse_arge():
     parser = argparse.ArgumentParser()
     # add model id and dataset path argument
     parser.add_argument("--model_id", type=str, default="google/flan-t5-xl", help="Model id to use for training.")
-    parser.add_argument("--dataset_path", type=str, default="data", help="Path to the already processed dataset.")
+    parser.add_argument("--train_dataset_path", type=str, help="Path to processed dataset stored by sageamker.")
+    parser.add_argument("--test_dataset_path", type=str, help="Path to processed dataset stored by sageamker.")
     parser.add_argument(
         "--repository_id", type=str, default=None, help="Hugging Face Repository id for uploading models"
     )
@@ -60,7 +51,7 @@ def parse_arge():
     parser.add_argument("--lr", type=float, default=3e-3, help="Learning rate to use for training.")
     parser.add_argument("--seed", type=int, default=42, help="Seed to use for training.")
     parser.add_argument("--deepspeed", type=str, default=None, help="Path to deepspeed config file.")
-    parser.add_argument("--gradient_checkpointing", type=bool, default=True, help="Path to deepspeed config file.")
+    parser.add_argument("--gradient_checkpointing", type=bool, default=True, help="Whether to use gradient checkpointing.")
     parser.add_argument(
         "--bf16",
         type=bool,
@@ -82,8 +73,8 @@ def training_function(args):
     set_seed(args.seed)
 
     # load dataset from disk and tokenizer
-    train_dataset = load_from_disk(os.path.join(args.dataset_path, "train"))
-    eval_dataset = load_from_disk(os.path.join(args.dataset_path, "eval"))
+    train_dataset = load_from_disk(args.train_dataset_path)
+    eval_dataset = load_from_disk(args.test_dataset_path)
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
     # load model from the hub
     model = AutoModelForSeq2SeqLM.from_pretrained(
@@ -118,8 +109,7 @@ def training_function(args):
         return result
 
     # Define training args
-    # output_dir = args.repository_id if args.repository_id else args.model_id.split("/")[-1]
-    output_dir = args.model_id.split("/")[-1]
+    output_dir = os.environ["SM_OUTPUT_DATA_DIR"]
     training_args = Seq2SeqTrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=args.per_device_train_batch_size,
@@ -142,7 +132,6 @@ def training_function(args):
         save_total_limit=2,
         load_best_model_at_end=True,
         # push to hub parameters
-        report_to="tensorboard",
         push_to_hub=True if args.repository_id else False,
         hub_strategy="every_save",
         hub_model_id=args.repository_id if args.repository_id else None,
@@ -169,6 +158,9 @@ def training_function(args):
     if args.repository_id:
         trainer.push_to_hub()
 
+    # Saves the model to s3 uses os.environ["SM_MODEL_DIR"] to make sure checkpointing works
+    trainer.save_model(os.environ["SM_MODEL_DIR"])
+    tokenizer.save_pretrained(os.environ["SM_MODEL_DIR"])
 
 def main():
     args, _ = parse_arge()

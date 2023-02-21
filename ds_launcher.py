@@ -58,5 +58,3 @@ def deepspeed_launch(command):
 
 if __name__ == "__main__":
     main()
-
-# python test.py  run.py --model_id distilbert --epoch 3
