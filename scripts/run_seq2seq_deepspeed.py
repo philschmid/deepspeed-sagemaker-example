@@ -80,6 +80,7 @@ def training_function(args):
     model = AutoModelForSeq2SeqLM.from_pretrained(
         args.model_id,
         use_cache=False if args.gradient_checkpointing else True,  # this is needed for gradient checkpointing
+        cache_dir = "/opt/ml/input/" # changed for SM to have enough storage space
     )
 
     # we want to ignore tokenizer pad token in the loss
